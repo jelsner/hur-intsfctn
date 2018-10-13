@@ -1,0 +1,463 @@
+Hurricane Intensification and SST
+=================================
+
+### James B. Elsner and Erik Fraza
+
+Hourly best track data as a data frame
+```{r}
+library("dplyr")
+load("best.use.2014.RData")
+begin = 1986; end = 2013
+Tracks.df = best.use %>%
+  mutate(Int = WmaxS * .5144, 
+         DIntDt = DWmaxDt * .5144) %>%
+  filter(Yr >= begin, Yr <= end, Int >= 33, M == FALSE)
+```
+
+Distribution of intensity change
+```{r}
+library("ggplot2")
+library("scales")
+ggplot(Tracks.df, aes(DIntDt)) +
+  geom_histogram(binwidth = .5, color = "white", fill = muted("blue")) +
+  xlab(expression(paste("Intensity Change [m ", s^-1, " per h]"))) +
+  ylab("Number of Hours") +
+  geom_histogram(aes(DIntDt), data = Tracks.df[Tracks.df$DIntDt >= 0, ], 
+                 binwidth = .5, color = "white", fill = "#6A51A3") +
+  scale_x_continuous(limits = c(-4, 4)) 
+length(Tracks.df$DIntDt)
+length(unique(Tracks.df$Sid))
+mean(Tracks.df$DIntDt)
+fivenum(Tracks.df$DIntDt)
+library("moments")
+kurtosis(Tracks.df$DIntDt)
+```
+
+```{r}
+Tracks.df = Tracks.df %>%
+  filter(DIntDt > 0)
+mean(Tracks.df$DIntDt)
+median(Tracks.df$DIntDt)
+median(Tracks.df$DIntDt) * 1.9438 * 24 #convert to kt/day
+fivenum(Tracks.df$DIntDt)
+ggplot(Tracks.df, aes(DIntDt)) +
+  geom_histogram(binwidth = .25, color = "white", fill = muted("red"))
+```
+
+Track points as a spatial points data frame
+```{r}
+library("rgdal")
+ll = "+proj=longlat +ellps=WGS84"
+#lcc = "+proj=lcc +lat_1=60 +lat_2=30 +lon_0=-60 +units=km"
+Tracks.sdf = Tracks.df
+coordinates(Tracks.sdf) = c("lon", "lat")
+proj4string(Tracks.sdf) = CRS(ll)
+```
+
+Create grid
+```{r}
+library("raster")
+r = raster(ncol = 20, nrow = 10, 
+           xmn = -100, xmx = -20, 
+           ymn = 10, ymx = 50)
+Example.sdf = subset(Tracks.sdf, 
+                     Sid == 1517 | 
+                     Sid == 1605 |
+                     Sid == 1657)
+Example.grid = rasterize(Example.sdf, r, 
+                         field = 'DIntDt',
+                         fun = mean)
+```
+
+Plot grids
+```{r}
+library("RColorBrewer")
+library("rasterVis")
+range(values(Example.grid), na.rm = TRUE)
+rng = seq(0, 1.4, .2)
+cr = brewer.pal(8, "Purples")
+cr = cr[-1]
+vals = levelplot(Example.grid, margin = FALSE, 
+          sub = expression(paste("     Average Intensification [m ", s^-1, " per h]")), 
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, at = rng, 
+          colorkey = list(space = 'bottom'),
+          border = "white", border.lwd = 2,
+          par.settings = list(fontsize = list(text = 15)))
+```
+
+Country borders
+```{r}
+library(mapproj)
+library(maptools)
+outlines = as.data.frame(map("world", xlim = c(-100, -20), 
+                             ylim = c(10, 50), 
+                             plot = FALSE)[c("x", "y")],
+                             color = "gray")
+map = geom_path(aes(x, y), inherit.aes = FALSE, data = outlines, 
+                alpha = .8, show_guide = FALSE, color = "gray")
+ext = as.vector(extent(r))
+boundaries = map("world", fill = TRUE, xlim = ext[1:2], 
+                 ylim = ext[3:4], plot = FALSE)
+IDs = sapply(strsplit(boundaries$names, ":"), function(x) x[1])
+bPols = map2SpatialPolygons(boundaries, IDs = IDs,
+                              proj4string = CRS(projection(r)))
+```
+
+Tracks
+```{r}
+require(gridExtra)
+Int2a.df = filter(Tracks.df, Sid == 1517)
+Int2b.df = filter(Tracks.df, Sid == 1605)
+Int2c.df = filter(Tracks.df, Sid == 1657)
+holdera = data.frame(Int2a.df$lon, Int2a.df$lat)
+holderb = data.frame(Int2b.df$lon, Int2b.df$lat)
+holderc = data.frame(Int2c.df$lon, Int2c.df$lat)
+linesa = SpatialLines(list(Lines(list(Line(holdera)),
+                                 ID = 'Int2a.df$Sid')))
+linesb = SpatialLines(list(Lines(list(Line(holderb)),
+                                 ID = 'Int2b.df$Sid')))
+linesc = SpatialLines(list(Lines(list(Line(holderc)),
+                                 ID = 'Int2c.df$Sid')))
+vals + layer(sp.polygons(bPols, col = gray(.8))) +
+  layer(sp.lines(linesa, lwd = 2, col = gray(.4))) + 
+  layer(sp.lines(linesb, lwd = 2, col = gray(.4))) + 
+  layer(sp.lines(linesc, lwd = 2, col = gray(.4))) +
+  layer(panel.text(-64, 27.5, 'Floyd (1999)', col = gray(.4))) +
+  layer(panel.text(-48, 15.5, 'Dean (2007)', col = gray(.4))) + 
+  layer(panel.text(-79.75, 12, 'Ivan (2004)', col = gray(.4)))
+```
+
+Mean intensification grid
+```{r}
+Intfy.grid = rasterize(Tracks.sdf, r, 
+                     field = 'DIntDt',
+                     fun = mean)
+sum(!is.na(values(Intfy.grid)))
+range(values(Intfy.grid), na.rm = TRUE)
+rng = seq(0, 1.2, .2)
+cr = brewer.pal(8, "Purples")
+cr = cr[-1]
+cr = cr[-length(cr)]
+vals = levelplot(Intfy.grid, margin = FALSE, 
+          sub = expression(paste("             Mean Intensification [m ", s^-1, " per h]")), 
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, at = rng, 
+          colorkey = list(space = 'bottom'),
+          border = "white", border.lwd = 2,
+          par.settings = list(fontsize = list(text = 15)))
+pA = vals + layer(sp.polygons(bPols, col = gray(.8)))
+pA = update(pA, main = textGrob("a", x = unit(.05, "npc"), 
+                               gp = gpar(fontsize=16)))
+
+Freq.grid = rasterize(Tracks.sdf, r, 
+                     field = 'DIntDt',
+                     fun = 'count')
+SD.grid = rasterize(Tracks.sdf, r,
+                    field = 'DIntDt',
+                    fun = sd)
+SE.grid = SD.grid/sqrt(Freq.grid)
+CV.grid = SD.grid/Intfy.grid
+
+range(values(CV.grid), na.rm = TRUE)
+rng = seq(0, 2, .5)
+cr = brewer.pal(6, "Greens")
+cr = cr[-1]
+vals = levelplot(CV.grid, margin = FALSE, 
+          sub = expression(paste("            Coefficient of Variation")), 
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, at = rng, 
+          colorkey = list(space = 'bottom'),
+          border = "white", border.lwd = 2,
+          par.settings = list(fontsize = list(text = 15)))
+pB = vals + layer(sp.polygons(bPols, col = gray(.8)))
+pB = update(pB, main = textGrob("b", x = unit(.05, "npc"), 
+                               gp = gpar(fontsize = 16)))
+
+grid.arrange(pA, pB, ncol = 1)
+```
+
+SST data
+```{r}
+load("ncSST20002013.RData")  
+load("ncSST19901999.RData")
+load("ncSST19801989.RData")
+
+SST = cbind(ncdataframe19801989[, -(3:74)], 
+            ncdataframe19901999[, 3:length(ncdataframe19901999)], 
+            ncSST20002013[, 3:length(ncSST20002013)])
+Month = rep(month.abb, length(1986:2013))
+Index = Month == "Jun" | Month == "Jul" | Month == "Aug" | Month == "Sep" | Month == "Oct"
+SST2 = SST[, which(Index) + 2]
+sst = rowMeans(SST2)
+sst.df = data.frame(lon = SST$lon, lat = SST$lat, sst = sst)
+sst.sdf = sst.df
+coordinates(sst.sdf) = c("lon", "lat")
+proj4string(sst.sdf) = CRS(ll)
+```
+
+```{r}
+SST.grid = rasterize(sst.sdf, r,
+                     field = 'sst', 
+                     fun = mean)
+SST.grid = mask(SST.grid, Intfy.grid)
+sum(!is.na(values(SST.grid)))
+
+SST.grid2 = SST.grid
+SST.grid2[SST.grid2 < 20] = 20
+
+range(values(SST.grid), na.rm = TRUE)
+rng = seq(20, 30, 2)
+cr = brewer.pal(6, "Reds")
+cr = cr[-1]
+vals = levelplot(SST.grid2, margin = FALSE, 
+          sub = expression(paste("          Averge SST [", degree, "C]")), 
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, at = rng, 
+          colorkey = list(space = 'bottom'),
+          border = "white", border.lwd = 2,
+          par.settings = list(fontsize = list(text = 15)))
+vals + layer(sp.polygons(bPols, col = gray(.8)))
+```
+
+Additional grids
+```{r}
+Speed.grid = rasterize(Tracks.sdf, r, 
+                     field = 'maguv',
+                     fun = mean)
+Wmax.grid = rasterize(Tracks.sdf, r,
+                      field = 'Wmax',
+                      fun = mean)
+
+cellStats(Speed.grid, mean)
+m = Speed.grid
+m[m < 22] = NA
+mr = mask(Speed.grid, m)
+cellStats(mr, mean) * .5144
+m = Speed.grid
+m[m >= 22] = NA
+mr = mask(Speed.grid, m)
+cellStats(mr, mean) * .5144
+```
+
+Crop extent and create data frame
+```{r}
+ext = extent(Intfy.grid, 4, 10, 2, 17)
+Intfy.gridC = crop(Intfy.grid, ext)
+SST.gridC = crop(SST.grid, ext)
+Speed.gridC = crop(Speed.grid, ext)
+Wmax.gridC = crop(Wmax.grid, ext)
+Freq.gridC = crop(Freq.grid, ext)
+SE.gridC = crop(SE.grid, ext)
+
+int = values(Intfy.gridC)
+sst = values(SST.gridC)
+speed = values(Speed.gridC)
+count = values(Freq.gridC)
+Wmax = values(Wmax.gridC)
+seInt = values(SE.gridC)
+Loc = coordinates(Intfy.gridC)
+
+df = data.frame(x = Loc[, 1], y = Loc[, 2], int, seInt, sst, speed, count, Wmax)
+summary(df)
+summary(df$int) * 1.9438 * 24
+
+Mask = SST.gridC
+Mask[Mask > 0] = FALSE
+
+cr = gray(.8)
+vals = levelplot(Mask, margin = FALSE,
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, 
+          colorkey = FALSE,
+          border = "white", border.lwd = 2)
+vals + layer(sp.polygons(bPols, col = gray(.5)))
+```
+
+Histogram of mean intensification
+```{r}
+ggplot(df, aes(int)) +
+  geom_histogram(binwidth = .1, color = "white", fill = "#6A51A3") +
+  xlab(expression(paste("Average Intensification [m ", s^-1, " per h]"))) +
+  ylab("Number of Grid Cells")
+```
+
+Intensification vs SST
+```{r}
+cor.test(df$sst, df$int)
+cor.test(df$sst, df$Wmax)
+cor.test(df$int, df$count)
+cor.test(df$y, df$sst)
+
+model = glm(int ~ sst + Wmax, family = Gamma(link = log), data = df)
+summary(model)
+confint(model)
+
+summary(df$int, na.rm = TRUE) * 1.9438 * 24
+summary(df$sst, na.rm = TRUE)
+```
+
+Scatter plot and model at mean Wmax
+```{r}
+pred = predict(model, newdata = data.frame(int = df$int, sst = df$sst, Wmax = mean(df$Wmax, na.rm = TRUE)), 
+               type = "response", se.fit = TRUE)
+df$pred = pred$fit
+df$predSE = pred$se.fit
+df$residuals = df$int - df$pred
+
+range(df$residuals, na.rm = TRUE)
+median(df$residuals, na.rm = TRUE)
+ggplot(df, aes(x = sst, y = int)) + 
+  geom_line(aes(x = sst, y = pred), size = 1, color = "purple") +
+  geom_ribbon(aes(x = sst, ymax = pred + 2 * predSE, ymin = pred - 2 * predSE), 
+              color = "gray", alpha = .25) +
+  geom_point() +
+  geom_errorbar(aes(ymin = int - seInt, ymax = int + seInt), width = .05) +
+  xlab(expression(paste("Average SST [", degree, "C]")))+
+  ylab(expression(paste("Mean Intensification [m " ~ s^{-1} ~ " per h]")))
+```
+
+Residuals
+```{r}
+pA = ggplot(df, aes(residuals)) +
+  geom_histogram(binwidth = .1, color = "white", fill = gray(.75)) +
+  xlab(expression(paste("Residual [m ", s^-1, " per h]"))) +
+  ylab("Number of Grid Cells")
+
+qqplot.data <- function (vec) # argument: vector of numbers
+{
+  # following four lines from base R's qqline()
+  y <- quantile(vec[!is.na(vec)], c(0.25, 0.75))
+  x <- qnorm(c(0.25, 0.75))
+  slope <- diff(y)/diff(x)
+  int <- y[1L] - slope * x[1L]
+
+  d <- data.frame(resids = vec)
+
+  ggplot(d, aes(sample = resids)) +
+    geom_abline(slope = slope, intercept = int, color = 'purple') +
+    stat_qq(size = 3, color = gray(.75)) + 
+    xlab("Theoretical Quantiles") +
+    ylab(expression(paste("Residual Quantiles [m " ~ s^{-1} ~ " per h]")))
+}
+pB = qqplot.data(df$residuals)
+
+source("multiplot.txt")
+mat = matrix(c(1, 2), nrow = 1, byrow = TRUE)
+pA = pA + ggtitle("a") + theme(plot.title = element_text(hjust = 0))
+pB = pB + ggtitle("b") + theme(plot.title = element_text(hjust = 0))              
+multiplot(pA, pB, layout = mat)
+```
+
+Map of residuals
+```{r}
+Resid.grid = crop(r, ext)
+Resid.grid[] = df$residuals
+range(values(Resid.grid), na.rm = TRUE)
+median(values(Resid.grid), na.rm = TRUE)
+rng = seq(-.8, .8, .2)
+cr = brewer.pal(8, "BrBG")
+vals = levelplot(Resid.grid, margin = FALSE, 
+          sub = expression(paste("        Residuals [m " ~ s^{-1} ~ "" ~ h^{-1} ~ "per ",degree,"C]")), 
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, at = rng, 
+          colorkey = list(space = 'bottom'),
+          border = "white", border.lwd = 2,
+          par.settings = list(fontsize = list(text = 15)))
+vals + layer(sp.polygons(bPols, col = gray(.8)))
+```
+
+Spatial autocorrelation
+
+Convert to spatial polygons data frame
+```{r}
+X = stack(Intfy.gridC, SST.gridC, Wmax.gridC)
+X.spdf = rasterToPolygons(X)
+names(X.spdf) = c("int", "sst", "Wmax")
+X.spdf$ID = 1:dim(X.spdf@data)[1]
+```
+
+Neighborhood definition
+```{r}
+library("spdep")
+nb = poly2nb(X.spdf, queen = TRUE)
+wts = nb2listw(nb)
+```
+
+Test for spatial autocorrelation in the residuals
+```{r}
+model = glm(int ~ sst + Wmax, family = Gamma(link = log), data = X.spdf@data)
+summary(model)
+lm.morantest(model, wts)
+moran.test(X.spdf$int, wts)
+```
+
+Local spatial autocorrelation
+```{r}
+#LM.grid = MoranLocal(Resid.grid, w = matrix(rep(0:1, length = 9), 3, 3))
+LM.grid = MoranLocal(Resid.grid)
+range(values(LM.grid), na.rm = TRUE)
+rng = seq(-1, 7, 1)
+cr1 = brewer.pal(9, "Oranges")
+cr2 = brewer.pal(9, "YlGn")
+cr = c(cr2[4], cr1[3:9])
+vals = levelplot(LM.grid, margin = FALSE, 
+          sub = expression(paste("        Residual Spatial Correlation")), 
+          xlab = NULL, ylab = NULL, 
+          col.regions = cr, at = rng, 
+          colorkey = list(space = 'bottom'),
+          border = "white", border.lwd = 2,
+          par.settings = list(fontsize = list(text = 15)))
+vals + layer(sp.polygons(bPols, col = gray(.8)))
+```
+
+```{r}
+TT.df = Tracks.df %>%
+  filter(lon <= -64, lon >= -76, lat >= 10, lat <= 14)
+unique(TT.df$name)
+unique(TT.df$Yr)
+```
+
+Residuals correlated with other variables
+```{r}
+X = stack(Resid.grid, Speed.gridC)
+nlayers(X)
+layerStats(X, 'pearson', na.rm = TRUE)
+```
+
+Spatial Regression
+
+Spatial error or spatial lag model.
+```{r}
+modelLM = lm(int ~ sst + Wmax, data = X.spdf@data)
+summary(modelLM)
+lm.LMtests(modelLM, wts, test = c("LMerr","LMlag"))
+lm.LMtests(modelLM, wts, test = c("RLMerr","RLMlag"))
+```
+
+INLA model
+```{r}
+library("INLA")
+nb2INLA("graph.inla", nb)
+graph.inla = inla.read.graph("graph.inla")
+formula = int ~ sst + Wmax + f(ID, model = "besag", graph = graph.inla)
+model.sr = inla(formula = formula, family = "gamma",
+                 data = X.spdf@data, 
+                 control.compute = list(config = TRUE, mlik = TRUE, cpo = TRUE, dic = TRUE, po = TRUE),
+                 control.predictor = list(compute = TRUE),
+                 control.results = list(return.marginals.random = TRUE),
+                 control.family = list(hyper = list(theta = list(prior = "loggamma", param = c(1, 1))))
+                 )
+summary(model.sr)
+
+```
+
+```{r}
+X.spdf$random = model.sr$summary.random$ID$mean
+spplot(X.spdf, "random")
+
+X.spdf$fitted = model.sr$summary.fitted.values$mean
+spplot(X.spdf, "fitted")
+```
+
+

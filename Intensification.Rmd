@@ -14,156 +14,36 @@ Import the data. The data are interpolated to one hour intervals. See Dropbox/Hu
 df <- read.csv(file = "best.interp.2016.csv", header = TRUE)
 ```
 
+The `WmaxS` has units of knots to be consistent with the best-track wind speeds and the intensification rate (`DWmaxDt`) has units of knots per hour.
 ```{r}
 library(dplyr)
-begin = 1986; end = 2016
-Tracks.df = df %>%
+begin <- 1986
+end <- 2016
+Tracks.df <- df %>%
   mutate(Int = WmaxS * .5144, 
          DIntDt = DWmaxDt * .5144) %>%
   filter(Yr >= begin, Yr <= end, Int >= 33, M == FALSE)
 ```
 
-Distribution of intensity change
+Distribution of hourly intensification rates.
 ```{r}
-library("ggplot2")
-library("scales")
-ggplot(Tracks.df, aes(DIntDt)) +
-  geom_histogram(binwidth = .5, color = "white", fill = muted("blue")) +
+library(ggplot2)
+library(scales)
+ggplot(Tracks.df, aes(x = DIntDt)) +
+  geom_freqpoly(bins = 50, size = 2) +
+  geom_vline(xintercept = .643, color = "blue", size = 1.5) +
+  geom_vline(xintercept = 0, color = "gray", size = .5) +
   xlab(expression(paste("Intensity Change [m ", s^-1, " per h]"))) +
   ylab("Number of Hours") +
-  geom_histogram(aes(DIntDt), data = Tracks.df[Tracks.df$DIntDt >= 0, ], 
-                 binwidth = .5, color = "white", fill = "#6A51A3") +
-  scale_x_continuous(limits = c(-4, 4)) 
+  theme_minimal() +
+  labs(title = "Hourly hurricane intensification/decay rates (1986-2016)", subtitle = "Steady state is most common. Blue line: average intensification rate needed to achieve rapid intensification.")
+```
+
+```{r}
 length(Tracks.df$DIntDt)
 length(unique(Tracks.df$Sid))
 mean(Tracks.df$DIntDt)
 fivenum(Tracks.df$DIntDt)
-library("moments")
+library(moments)
 kurtosis(Tracks.df$DIntDt)
-```
-
-
-Quantile regression
--------------------
-Quantile regression extends linear regression to conditional quantiles (e.g., 90th percentile) of the response variable.
-
-It relies on the non-parametric quantiles, but uses parameters to assess the relationship between the quantile and the covariates.
-
-Quantiles are points taken at regular intervals from the cumulative distribution function of your data.  Quantiles mark a set of ordered data into equal-sized data subsets.
-```{r quantiles}
-quantile(rnorm(100), prob=seq(.1, .9, .1))
-```
-
-Consider the set of per storm maximum wind speeds.
-```{r lifetimeMax}
-con = "http://www.hurricaneclimate.com/storage/chapter-8/LMI.txt"
-LMI.df = read.table(con, header=TRUE)
-round(head(LMI.df)[c(1, 5:9, 12, 16)], 1)
-#con = "http://myweb.fsu.edu/jelsner/extspace/extremedatasince1899.csv"
-#LMI = read.csv(con, header=TRUE)
-#head(LMI)
-```
-
-Here WmaxS is the estimated fastest wind speed for each cyclone in the North Atlantic.
-
-First convert the wind speeds from the operational units of knots to the SI units of m/s.
-```{r convertSpeedUnits}
-LMI.df$WmaxS = LMI.df$WmaxS * .5144
-```
-
-Quantiles and distributions
----------------------------
-The quartiles (0.25 and 0.75 quantiles) of the wind speed distribution.
-```{r quantileLMI}
-quantile(LMI.df$WmaxS, c(0.25, 0.75))
-```
-
-We see that 25% of the storms have a wind speed maxima less than 25.5 m/s and 75% have a wind speed maxima less than 46 m/s so that 50% of all storms have a maximum wind speed between 25.5 and 46 m/s (interquartile range).
-
-To see if there is a trend over time you use the linear regression.  However, we note that the distribution of per cyclone maximum wind speed is not normal so it is best to transform the wind speeds.  In this case a logarithmic transform is a good choice.
-
-To examine the distributions of the raw and log-transformed wind speeds, type:
-```{r distribution}
-par(mfrow=c(1, 2))
-boxplot(LMI.df$WmaxS)
-boxplot(log(LMI.df$WmaxS))
-```
-
-To see if there is a significant trend in the mean wind speed over time, type:
-```{r trend}
-summary(lm(log(WmaxS) ~ Yr, data=LMI.df))
-```
-What do you conclude?
-
-Conditional quantiles
----------------------
-Linear regression is a model for the conditional mean (here, conditional on year).  What about higher wind speeds?  The theory of maximum potential intensity applies to the strongest hurricanes.
-
-The subset of upper quartile wind speeds are, on average, a subset of storms closer their maximum possible wind speed.
-
-So you need a model for the conditional quantiles.  Here you restrict the dataset to the years since satellite data (1967).
-
-Create side-by-side box plots as a function of year.
-```{r boxplotsByYear}
-par(mfrow=c(1, 1))
-attach(LMI.df)
-x = boxplot(WmaxS ~ factor(Yr), plot=FALSE)
-boxplot(WmaxS ~ factor(Yr), ylim=c(18, 90), xlab="Year", ylab="Wind Speed (kt)")
-xx = 1:44
-abline(lm(x$stats[5, ] ~ xx),col="red")
-abline(lm(x$stats[4, ] ~ xx),col="blue")
-abline(lm(x$stats[3, ] ~ xx),col="green")
-detach(LMI.df)
-```
-The graph verifies the lack of trend in LMI for average cyclones.  It also shows a tendency for the strongest storms to get stronger over time.  To quantify this trend and determine significance we turn to a quantile regression model.
-
-Quantile regression
--------------------
-The functionality is available in the **quantreg** package.
-```{r quantregPackages}
-#install.packages("quantreg")
-require(quantreg)
-citation("quantreg")
-```
-
-You begin with a median regression of wind speed on year.
-```{r medianRegression}
-summary(rq(WmaxS ~ Yr, tau=.5, data=LMI.df), se="iid")
-```
-Insignificant trend.  Similar to the linear regression.
-
-How about trends in the upper quantiles?
-```{r upperQuantiles}
-summary(rq(WmaxS ~ Yr, data=LMI.df, tau=c(.75, .9, .95)), se="iid")
-```
-
-At the 75th and 95th percentiles, there is suggestive, but inconclusive evidence of a trend, but at the 90th percentile there is convincing evidence of an increase in the intensity of the strongest hurricanes in accord with MPI theory.
-
-To show the results on a plot, type:
-```{r plotResults}
-model = rq(WmaxS ~ Yr, data=LMI.df, tau=seq(.1, .9, .1))
-plot(summary(model, alpha=.05, se="boot"), parm=2, pch=19, cex=1.2,
-     mar=c(5, 5, 4, 2), ylab="Trend (kt/yr)", xlab="Quantile",
-     main="North Atlantic Hurricanes")
-```
-
-The dots with lines indicate the trend for quantiles in the range between .1 and .9 by increments of .1.  The gray shading indicates the 95% confidence interval on the slope estimate.  The red solid line is the least squares regression slope and the dotted lines are the 95% confidence interval about that estimate.
-
-In summary, quantile regression provides a more complete picture of how the response variable is conditioned on the values of the explanatory variables.
-
-A review paper providing an introduction to quantile regression in ecology is available here. http://www.fort.usgs.gov/Products/Publications/21137/21137.pdf
-
-Quantile regression for trend analysis
-http://hurricaneclimate.blogspot.com/2008_07_01_archive.html
-
-
-
-
-```{r}
-library(sf)
-library(tidyverse)
-coords = df %>%
-  group_by(Sid) %>%
-  do(ls = st_linestring(cbind(df$lon, df$lat), dim = "XY"))
-plot(coords$geometry)
 ```

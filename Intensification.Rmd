@@ -14,7 +14,7 @@ Import the data. The data are interpolated to one hour intervals. See Dropbox/Hu
 df <- read.csv(file = "best.interp.2016.csv", header = TRUE)
 ```
 
-The `WmaxS` has units of knots to be consistent with the best-track wind speeds and the intensification rate (`DWmaxDt`) has units of knots per hour.
+The variable `WmaxS` has units of knots consistent with the best-track wind speeds and the intensification rate (`DWmaxDt`) has units of knots per hour. Multiply by .5144 to get m/s and m/s per hour. Only consider hurricanes over water (`M == FALSE`).
 ```{r}
 library(dplyr)
 begin <- 1986
@@ -36,9 +36,13 @@ ggplot(Tracks.df, aes(x = DIntDt)) +
   xlab(expression(paste("Intensity Change [m ", s^-1, " per h]"))) +
   ylab("Number of Hours") +
   theme_minimal() +
-  labs(title = "Hourly hurricane intensification/decay rates (1986-2016)", subtitle = "Steady state is most common. Blue line: average intensification rate needed to achieve rapid intensification.")
+  labs(title = "Blue line: Avg hourly intensification needed for `rapid intensification`",
+       subtitle = "Steady state is most common") +
+  annotate("label", x = -2.8, y = 200, label = "Data: NHC (1986-2016)") +
+  annotate("label", x = 2.5, y = 2300, label = "Interpolation method\n (Elsner & Jagger 2013)")
 ```
 
+Other information.
 ```{r}
 length(Tracks.df$DIntDt)
 length(unique(Tracks.df$Sid))

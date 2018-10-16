@@ -17,7 +17,7 @@ df <- read.csv(file = "best.interp.2016.csv", header = TRUE)
 The variable `WmaxS` has units of knots consistent with the best-track wind speeds and the intensification rate (`DWmaxDt`) has units of knots per hour. Multiply by .5144 to get m/s and m/s per hour. Only consider hurricanes over water (`M == FALSE`).
 ```{r}
 library(dplyr)
-begin <- 1986
+begin <- 1980
 end <- 2016
 Tracks.df <- df %>%
   mutate(Int = WmaxS * .5144, 
@@ -25,7 +25,7 @@ Tracks.df <- df %>%
   filter(Yr >= begin, Yr <= end, Int >= 33, M == FALSE)
 ```
 
-Distribution of hourly intensification rates.
+Distribution of hourly intensification rates. Rapid intensification 30 kt/24 hr reduced amounts to .643 m/s per hr
 ```{r}
 library(ggplot2)
 library(scales)
@@ -40,6 +40,18 @@ ggplot(Tracks.df, aes(x = DIntDt)) +
        subtitle = "Steady state is most common") +
   annotate("label", x = -2.8, y = 200, label = "Data: NHC (1986-2016)") +
   annotate("label", x = 2.5, y = 2300, label = "Interpolation method\n (Elsner & Jagger 2013)")
+```
+
+Percentage of all intensifying hurricane hours with rates exceeding `rapid intensification`.
+```{r}
+Tracks.df %>%
+  filter(DIntDt > 0) %>%
+  group_by(SYear) %>%
+  summarize(nH = n(),
+            perH = sum(DIntDt > .643)/nH) %>%
+ggplot(., aes(x = SYear, y = perH)) +
+  geom_point() +
+  geom_smooth(method = lm)
 ```
 
 Other information.

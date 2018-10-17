@@ -54,6 +54,23 @@ ggplot(., aes(x = SYear, y = perH)) +
   geom_smooth(method = lm)
 ```
 
+Average hourly intensification rates in rolling 24 hour windows.
+```{r}
+begin <- 1980
+end <- 2016
+Tracks.df <- df %>%
+  mutate(Int = WmaxS * .5144, 
+         DIntDt = DWmaxDt * .5144) %>%
+  filter(Yr >= begin, Yr <= end)
+```
+
+```{r}
+df2 <- Tracks.df %>%
+  group_by(Sid) %>%
+  mutate(Avg24 = roll_mean(DIntDt, 24, align = "left", fill = 0)) %>%
+  filter(Avg24 > .643)
+```
+
 Other information.
 ```{r}
 length(Tracks.df$DIntDt)
